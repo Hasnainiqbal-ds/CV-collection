@@ -2,6 +2,7 @@ import io
 import json
 import os
 import re
+import time
 
 import streamlit as st
 from docx import Document
@@ -9,7 +10,8 @@ from google import genai
 from google.genai import types
 from pypdf import PdfReader
 
-MODEL = "gemini-3.8-flash"  # change this if Google renames the model again
+# Main model first, backup second. Edit these if Google renames models.
+MODELS = ["gemini-3.8-flash", "gemini-3.6-flash"]
 
 st.set_page_config(page_title="ATS Resume Checker", page_icon="📄")
 
@@ -38,6 +40,23 @@ def get_api_key() -> str:
         return os.environ.get("GEMINI_API_KEY", "")
 
 
+def ask_gemini(client, prompt: str, config):
+    """Call Gemini. If it is busy (503), retry, then try the backup model."""
+    for model in MODELS:
+        for attempt in range(3):
+            try:
+                return client.models.generate_content(
+                    model=model, contents=prompt, config=config
+                )
+            except Exception as e:
+                busy = any(w in str(e) for w in ("503", "UNAVAILABLE", "overloaded", "high demand"))
+                if not busy:
+                    raise
+                if attempt < 2:
+                    time.sleep(2 * (attempt + 1))
+    raise RuntimeError("Gemini is very busy right now. Please wait a minute and try again.")
+
+
 def analyze(resume: str, job: str, api_key: str) -> dict:
     if job:
         job_part = "Compare it with this job description:\n" + job[:8000]
@@ -62,13 +81,10 @@ Reply with ONLY valid JSON in this exact shape:
 Give 5 to 8 improvements, most important first."""
 
     client = genai.Client(api_key=api_key)
-    response = client.models.generate_content(
-        model=MODEL,
-        contents=prompt,
-        config=types.GenerateContentConfig(
-            temperature=0.2, response_mime_type="application/json"
-        ),
+    config = types.GenerateContentConfig(
+        temperature=0.2, response_mime_type="application/json"
     )
+    response = ask_gemini(client, prompt, config)
     text = re.sub(r"^```(?:json)?|```$", "", (response.text or "").strip()).strip()
     data = json.loads(text)
 
