@@ -9,7 +9,7 @@ from google import genai
 from google.genai import types
 from pypdf import PdfReader
 
-MODEL = "gemini-2.5-flash"  # change this if Google renames the model
+MODEL = "gemini-3.8-flash"  # change this if Google renames the model again
 
 st.set_page_config(page_title="ATS Resume Checker", page_icon="📄")
 
